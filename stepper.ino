@@ -38,16 +38,15 @@ struct motor {
 
 typedef struct motor Motor;
 
-Motor motorLeft = {MOTOR_LEFT_STEP, MOTOR_LEFT_DIR, 0, 0, micros(), 60, true};
-Motor motorRight = {MOTOR_RIGHT_STEP, MOTOR_LEFT_DIR, 0, 0, micros(), 60, true};
+Motor motorLeft = {MOTOR_LEFT_STEP, MOTOR_LEFT_DIR, 0, 0, micros(), 0, true};
+Motor motorRight = {MOTOR_RIGHT_STEP, MOTOR_LEFT_DIR, 0, 0, micros(), 0, true};
 
 unsigned long t1 = micros();
 
-void motorSpeed(struct motor& m) {
+void motorSpeed(unsigned long now, struct motor& m) {
   if (m.speed == 0) {
     return;
   }
-  unsigned long now = micros();
   unsigned long untilTime = (1.0 / (m.speed/60.0 * stepsPerCycle * 4)) * 1000 * 1000;
   switch(m.state) {
     case 0:
@@ -69,14 +68,32 @@ void motorSpeed(struct motor& m) {
       break; 
   }
 }
+double a = 40; // cyclesPerMinute^2
+unsigned long ta = micros();
 
+double t = 0;
 void loop() {
   unsigned long now = micros();
-  motorSpeed(motorLeft);
-  motorSpeed(motorRight);
+  motorSpeed(now, motorLeft);
+  motorSpeed(now, motorRight);
+
+  if (now > (ta + 10000)) {
+    t = (now - ta) / (1000.0 * 1000.0 );
+    
+    motorLeft.speed += a * t;
+    motorRight.speed += a * t;
+    if (motorLeft.speed >= 60) {
+      a *= -1;
+    } 
+    if (motorLeft.speed <= 0) {
+      a *= -1;
+    }
+    ta = now;  
+  }
+  
 
   if (now > t1 + 1000000) {
-    Serial.println(steps);
+    Serial.println(motorLeft.speed);
     t1 = now;
   }
  
