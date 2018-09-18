@@ -45,35 +45,45 @@ unsigned long t1 = micros();
 const double a0 = 50;
 
 void motorSpeed(unsigned long now, struct motor& m) {
+  const double deltaVPerStepStart = 0.3;
+  const int timeFrame = 10000;
+  
   static unsigned long ta = now;
   static unsigned long tb = now;
   static double a = 0;
   static int accelerationState = 0;
-  int steps = 100;
+  static int maxSteps = 0;
+  static int currentStep = 0;
   static double deltaVPerStep = 0;
-  static int count = 0;
+  
   int maxCount = 0;
-
-
+  
   switch(accelerationState) {
     case 0: // hold speed phase
       if (m.currentSpeed != m.desiredSpeed) {
         accelerationState = 1;
-        deltaVPerStep = (m.desiredSpeed - m.currentSpeed) / steps;
+        double deltaV = m.desiredSpeed - m.currentSpeed;
+        maxSteps = abs(deltaV) / deltaVPerStepStart;
+        
+        if (deltaV > 0) {
+          deltaVPerStep = deltaVPerStepStart; 
+        } else {
+          deltaVPerStep = -1 * deltaVPerStepStart; 
+        }
         m.currentSpeed += deltaVPerStep;
-        count = 1;
+        currentStep = 1;
         tb = now;
       }
       break;
     case 1: // acceleration phase
-      if (now > (tb + 1000000 / steps)) {
+      if (now > (tb + timeFrame)) {
         m.currentSpeed += deltaVPerStep;
         
-        if (count == steps) {
+        if (currentStep >= maxSteps) {
           m.currentSpeed = m.desiredSpeed;
           accelerationState = 0;
         } else {
-          count++;  
+          currentStep++;  
           tb = now;
         }
         Serial.print("1: ");
