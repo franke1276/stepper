@@ -7,7 +7,10 @@ const int MOTOR_RIGHT_DIR = 6;
 const int enPin = 8; 
 
 const int stepsPerCycle = 200 * 8; 
- 
+const double d_r = 0.068;
+const double d_k = 0.169; 
+const double u_fullturn = d_k / d_r;
+
 void setup() {
   // Sets the two pins as Outputs
   pinMode(enPin,OUTPUT);
@@ -18,12 +21,9 @@ void setup() {
   
   digitalWrite(enPin,LOW); 
   Serial.begin(57600, SERIAL_8N1);
+  Serial.print("u_fullturn: ");
+  Serial.println(u_fullturn);
 }
-
-int state = 0;
-unsigned long steps = 0;
-unsigned long t0 = micros();
-double speed = 60;
 
 
 struct motor {
@@ -34,34 +34,35 @@ struct motor {
   double currentSpeed;
   bool forwardLeft;
   bool forwardRight;
+  int accelerationState;
 };
 
 typedef struct motor Motor;
 
-Motor m = {0, 0, micros(), 0, 0, true, true};
+Motor m = {0, 0, micros(), 0, 0, true, true, 0};
 
 
-unsigned long t1 = micros();
+
 const double a0 = 50;
 
-void motorSpeed(unsigned long now, struct motor& m) {
-  const double deltaVPerStepStart = 0.3;
+void motorSpeed( unsigned long now, double acceleration, struct motor& m) {
   const int timeFrame = 10000;
+
   
   static unsigned long ta = now;
   static unsigned long tb = now;
   static double a = 0;
-  static int accelerationState = 0;
   static int maxSteps = 0;
   static int currentStep = 0;
   static double deltaVPerStep = 0;
   
   int maxCount = 0;
+  double deltaVPerStepStart = acceleration / 100.0;
   
-  switch(accelerationState) {
+  switch(m.accelerationState) {
     case 0: // hold speed phase
       if (m.currentSpeed != m.desiredSpeed) {
-        accelerationState = 1;
+        m.accelerationState = 1;
         double deltaV = m.desiredSpeed - m.currentSpeed;
         maxSteps = abs(deltaV) / deltaVPerStepStart;
         
@@ -70,41 +71,43 @@ void motorSpeed(unsigned long now, struct motor& m) {
         } else {
           deltaVPerStep = -1 * deltaVPerStepStart; 
         }
+        
+//        Serial.print("speed change: ");
+//        Serial.print(m.currentSpeed);
+//        Serial.print(" -> ");
+//        Serial.print(m.desiredSpeed);
+//        Serial.print(" in ");
+//        Serial.print(maxSteps);
+//        Serial.print(" steps a ");
+//        Serial.println(deltaVPerStep);
+        
         m.currentSpeed += deltaVPerStep;
         currentStep = 1;
         tb = now;
+        
       }
       break;
     case 1: // acceleration phase
       if (now > (tb + timeFrame)) {
+//        Serial.print("acceleration phase: ");
+//        Serial.println(m.currentSpeed);
+        
         m.currentSpeed += deltaVPerStep;
         
         if (currentStep >= maxSteps) {
           m.currentSpeed = m.desiredSpeed;
-          accelerationState = 0;
+          m.accelerationState = 0;
+//          Serial.print("desiredSpeed reached: ");
+//          Serial.println(m.currentSpeed);
         } else {
           currentStep++;  
           tb = now;
         }
-        Serial.print("1: ");
-        Serial.println(m.currentSpeed);
+        
       }
       break;
   }
   
-//  if (now > (ta + 10000)) {
-//    double t = (now - ta) / (1000.0 * 1000.0 );
-//    
-//    if (m.currentSpeed > m.desiredSpeed) {
-//      a = -a0;
-//    } else if (m.currentSpeed < m.desiredSpeed) {
-//      a = a0;
-//    } else {
-//      a = 0;
-//    }
-//    m.currentSpeed += a * t;
-//    ta = now;  
-//  }
   
   if (m.currentSpeed == 0) {
     return;
@@ -114,7 +117,7 @@ void motorSpeed(unsigned long now, struct motor& m) {
   digitalWrite(MOTOR_RIGHT_DIR, m.forwardRight? LOW: HIGH);
   switch(m.state) {
     case 0:
-      if (now > t0 + untilTime) {
+      if (now > m.t0 + untilTime) {
         digitalWrite(MOTOR_LEFT_STEP, HIGH); 
         digitalWrite(MOTOR_RIGHT_STEP, HIGH); 
         m.t0 = micros();  
@@ -135,22 +138,83 @@ void motorSpeed(unsigned long now, struct motor& m) {
 
 
 double t = 0;
+int mainState = 0;
+
+unsigned long steps = 0;
+unsigned long t1 = micros();
+
 void loop() {
   unsigned long now = micros();
-  motorSpeed(now, m);
+  motorSpeed(now, 60, m);
   
 
-  
 
-  if ((now > t1 + 3000000)  && m.desiredSpeed == 0 ) {
-    m.desiredSpeed=30;
-    t1 = now;
+  switch (mainState) {
+    case 0: // wait for start
+      if ((now > t1 + 3 * 1000000)) {
+        t1 = now;
+        mainState = 1;
+      }
+      break;
+
+    case 1: // start
+      Serial.print(mainState);
+      Serial.print(": ");
+      Serial.println("start");
+      m.desiredSpeed=30;
+      m.forwardLeft = true;
+      m.forwardRight = true;
+      t1 = now;
+      mainState = 2;
+      break;  
+    case 2: // wait for acceleration
+      if (m.desiredSpeed == m.currentSpeed) {
+        Serial.print(mainState);
+        Serial.print(": ");
+        Serial.println("strait forward");
+        mainState = 3;
+      }
+      break;
+    case 3:  // strait forward
+      if ((now > t1 + 3 * 1000000)) {
+        Serial.print(mainState);
+        Serial.print(": ");
+        Serial.println("stopping");
+        m.desiredSpeed=0;
+        t1 = now;
+        mainState = 4;
+      }
+      break;
+    case 4: // wait for acceleration
+      if (m.desiredSpeed == m.currentSpeed) {
+        Serial.print(mainState);
+        Serial.print(": ");
+        Serial.println("stopped. Turn!");
+        mainState = 5;
+        steps = m.steps;
+        m.forwardLeft = false;
+        m.desiredSpeed = 20;
+      }
+      break;  
+    case 5:  // turn 
+      if ((m.steps >= steps + (stepsPerCycle * u_fullturn / 2) )) {
+        Serial.print(mainState);
+        Serial.print(": ");
+        Serial.println("Turn over! stopping...");
+        m.desiredSpeed=0;
+        t1 = now;
+        mainState = 6;
+      }  
+      break;
+    case 6: // wait for acceleration
+      if (m.desiredSpeed == m.currentSpeed) {
+        Serial.print(mainState);
+        Serial.print(": ");
+        Serial.println("Stopped.");
+        t1 = now;
+        mainState = 1;
+      }
+      break;
+      
   }
-  
-  if ((now > t1 + 3000000) && m.desiredSpeed == 30) {
-    m.desiredSpeed=0;
-    t1 = now;
-  }
-  
- 
 }
