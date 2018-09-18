@@ -10,6 +10,7 @@ const int stepsPerCycle = 200 * 8;
 const double d_r = 0.068;
 const double d_k = 0.169; 
 const double u_fullturn = d_k / d_r;
+const int stepsToStop = 136;
 
 void setup() {
   // Sets the two pins as Outputs
@@ -118,16 +119,14 @@ void motorSpeed( unsigned long now, double acceleration, struct motor& m) {
   switch(m.state) {
     case 0:
       if (now > m.t0 + untilTime) {
-        digitalWrite(MOTOR_LEFT_STEP, HIGH); 
-        digitalWrite(MOTOR_RIGHT_STEP, HIGH); 
+        PORTD = PORTD | B00001100;
         m.t0 = micros();  
         m.state = 1;
       }
       break;
      case 1:
       if (now > m.t0 + untilTime) {
-        digitalWrite(MOTOR_LEFT_STEP, LOW); 
-        digitalWrite(MOTOR_RIGHT_STEP, LOW); 
+        PORTD = PORTD & B11110011;
         m.t0 = micros();  
         m.state = 0;
         m.steps++;
@@ -142,6 +141,7 @@ int mainState = 0;
 
 unsigned long steps = 0;
 unsigned long t1 = micros();
+unsigned long stepsWhenStopping = 0;
 
 void loop() {
   unsigned long now = micros();
@@ -158,9 +158,6 @@ void loop() {
       break;
 
     case 1: // start
-      Serial.print(mainState);
-      Serial.print(": ");
-      Serial.println("start");
       m.desiredSpeed=30;
       m.forwardLeft = true;
       m.forwardRight = true;
@@ -169,17 +166,11 @@ void loop() {
       break;  
     case 2: // wait for acceleration
       if (m.desiredSpeed == m.currentSpeed) {
-        Serial.print(mainState);
-        Serial.print(": ");
-        Serial.println("strait forward");
         mainState = 3;
       }
       break;
     case 3:  // strait forward
       if ((now > t1 + 3 * 1000000)) {
-        Serial.print(mainState);
-        Serial.print(": ");
-        Serial.println("stopping");
         m.desiredSpeed=0;
         t1 = now;
         mainState = 4;
@@ -187,9 +178,6 @@ void loop() {
       break;
     case 4: // wait for acceleration
       if (m.desiredSpeed == m.currentSpeed) {
-        Serial.print(mainState);
-        Serial.print(": ");
-        Serial.println("stopped. Turn!");
         mainState = 5;
         steps = m.steps;
         m.forwardLeft = false;
@@ -197,20 +185,14 @@ void loop() {
       }
       break;  
     case 5:  // turn 
-      if ((m.steps >= steps + (stepsPerCycle * u_fullturn / 2) )) {
-        Serial.print(mainState);
-        Serial.print(": ");
-        Serial.println("Turn over! stopping...");
+      if (m.steps >= (steps + (stepsPerCycle * u_fullturn / 2))) {       
         m.desiredSpeed=0;
         t1 = now;
         mainState = 6;
       }  
       break;
     case 6: // wait for acceleration
-      if (m.desiredSpeed == m.currentSpeed) {
-        Serial.print(mainState);
-        Serial.print(": ");
-        Serial.println("Stopped.");
+      if (m.desiredSpeed == m.currentSpeed) {        
         t1 = now;
         mainState = 1;
       }
